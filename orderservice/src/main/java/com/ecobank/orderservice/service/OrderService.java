@@ -42,7 +42,8 @@ public class OrderService {
                     .collect(Collectors.toList());
 
             // Moved log statement here
-            log.info(orderLineItems.toString());
+            log.info("items::: "+orderLineItems);
+            log.info("request:::{}",orderRequest );
         } else {
             log.warn("OrderLineItemsDtoList is null for order request: {}", orderRequest);
         }
@@ -51,12 +52,13 @@ public class OrderService {
         List<String> skuCodes = order.getOrderLineItemsList().stream()
                 .map(OrderLineItems::getSkuCode)
                 .toList();
+        log.info("skucode list:::{}", skuCodes);
 
-        //Call inventory service. place order if product is in stock.
+        //Call inventory service. place order if product is in stock.8079
 
         try {
             InventoryResponse[] inventoryResponseArray = webClientBuilder.build().get()
-                    .uri("http://localhost:8079/api/inventory/get",
+                    .uri("http://inventoryservice/api/inventory/get",
                             uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
                     .retrieve()
                     .bodyToMono(InventoryResponse[].class)
