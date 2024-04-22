@@ -1,7 +1,10 @@
 package com.ecobank.orderservice.service;
 
+
+import com.ecobank.orderservice.dto.InventoryResponse;
 import com.ecobank.orderservice.dto.OrderLineItemsDto;
 import com.ecobank.orderservice.dto.OrderRequest;
+import com.ecobank.orderservice.dto.OrderResponse;
 import com.ecobank.orderservice.model.Order;
 import com.ecobank.orderservice.model.OrderLineItems.OrderLineItems;
 import com.ecobank.orderservice.repository.OrderRepository;
@@ -9,7 +12,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -21,9 +27,12 @@ import java.util.stream.Collectors;
 @Transactional
 public class OrderService {
     private final OrderRepository orderRepository;
-    public void placeOrder(OrderRequest orderRequest) {
+
+   private final WebClient.Builder webClientBuilder;
+    public OrderResponse placeOrder(OrderRequest orderRequest) {
         Order order = new Order();
         order.setOrderNumber(UUID.randomUUID().toString());
+
         List<OrderLineItems> orderLineItems = Collections.emptyList();
 
         if (orderRequest.getOrderLineItemsDtoList() != null) {
@@ -37,6 +46,40 @@ public class OrderService {
         } else {
             log.warn("OrderLineItemsDtoList is null for order request: {}", orderRequest);
         }
+        order.setOrderLineItemsList(orderLineItems);
+
+        List<String> skuCodes = order.getOrderLineItemsList().stream()
+                .map(OrderLineItems::getSkuCode)
+                .toList();
+
+        //Call inventory service. place order if product is in stock.
+
+        try {
+            InventoryResponse[] inventoryResponseArray = webClientBuilder.build().get()
+                    .uri("http://localhost:8079/api/inventory/get",
+                            uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
+                    .retrieve()
+                    .bodyToMono(InventoryResponse[].class)
+                    .block();
+
+            assert inventoryResponseArray != null;
+            boolean allProductsInStock =  Arrays.stream(inventoryResponseArray)
+                    .allMatch(InventoryResponse::isInStock);
+
+            if (allProductsInStock) {
+                orderRepository.save(order);
+                OrderResponse response = new OrderResponse();
+                response.setResponse("Order Placed Successfully");
+                return  response;
+            } else {
+                throw new IllegalArgumentException("Product is not in stock, please try again later");
+            }
+        } catch (WebClientResponseException.NotFound e) {
+            throw new IllegalArgumentException("Inventory service not found or endpoint is incorrect");
+        } catch (Exception e) {
+            throw new RuntimeException("Error occurred while fetching inventory", e);
+        }
+
     }
         private OrderLineItems mapToDto (OrderLineItemsDto orderLineItemsDto){
 
